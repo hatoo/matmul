@@ -1,6 +1,7 @@
 import torch
 from torch.utils.cpp_extension import load_inline
 import time
+import argparse
 
 from collections.abc import Callable
 
@@ -28,6 +29,7 @@ def benchmark(
     n: int,
     m: int,
     k: int,
+    name: str,
     kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None]):
     a = torch.randn(n, k, dtype=torch.float32, device='cuda')
     b = torch.randn(k, m, dtype=torch.float32, device='cuda')
@@ -51,18 +53,47 @@ def benchmark(
         sum += end - start
     average_time = sum / times
 
-    print(f"Time taken for {n}x{m} and {m}x{k} matrix multiplication: {average_time / 1e6:.2f} ms")
+    print(f"{name} kernel: {n}x{m}x{k} took {average_time / 1e6:.2f} ms on average.")
+
+def verify(
+    n: int,
+    m: int,
+    k: int,
+    name: str,
+    kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None]):
+    a = torch.randn(n, k, dtype=torch.float32, device='cuda')
+    b = torch.randn(k, m, dtype=torch.float32, device='cuda')
+    c = torch.zeros(n, m, dtype=torch.float32, device='cuda')
+    c_ref = torch.zeros(n, m, dtype=torch.float32, device='cuda')
+    c_ref = torch.matmul(a, b)
+
+    kernel(a, b, c)
+    torch.cuda.synchronize()
+    if torch.allclose(c, c_ref, rtol=1e-02, atol=1e-03):
+        print(f"{name} kernel verification passed.")
+    else:
+        print(f"{name} kernel verification failed.")
 
 def main():
-    n, m, k = 8192, 8192, 8192
+    parser = argparse.ArgumentParser(description="Benchmark CUDA kernels.")
+    parser.add_argument('--verify', action='store_true', help='Verify the kernel correctness.')
+
+    args = parser.parse_args()
+
+    n, m, k = 4096, 4096, 4096
 
     # Define a simple kernel function for matrix multiplication
-    def kernel(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+    def launch_torch(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
         torch.matmul(a, b, out=c)
 
-    # Benchmark the kernel
-    benchmark(n, m, k, kernel)
-    benchmark(n, m, k, launch_simple)
+    if args.verify:
+        # Verify the kernel
+        verify(n, m, k, 'torch', launch_torch)
+        verify(n, m, k, 'simple', launch_simple)
+    else:
+        # Benchmark the kernel
+        benchmark(n, m, k, 'torch', launch_torch)
+        benchmark(n, m, k, 'simple', launch_simple)
 
 
 if __name__ == "__main__":
