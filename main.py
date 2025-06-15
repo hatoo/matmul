@@ -2,13 +2,14 @@ import torch
 from torch.utils.cpp_extension import load_inline
 import time
 import argparse
+from typing import Any
 
 from collections.abc import Callable
 
 with open("kernels/simple.cu", "r") as f:
     simple_src = f.read()
 
-simple = load_inline(
+simple: Any = load_inline(
     name="simple",
     cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int n, int m, int k);",
     cuda_sources=simple_src,
