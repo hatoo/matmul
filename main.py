@@ -171,6 +171,81 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
             os.remove(temp_cu_file)
 
 
+def dump_sass(name: str, cuda_source: str, output_file: str | None = None):
+    """
+    Dump SASS (CUDA assembly) code for a CUDA kernel.
+    Args:
+        name: kernel name
+        cuda_source: CUDA source code
+        output_file: output file path (optional, defaults to {name}.sass)
+    """
+    if output_file is None:
+        output_file = f"{name}.sass"
+
+    print(f"Dumping SASS for {name} kernel to {output_file}...")
+
+    # Create a temporary source file
+    temp_cu_file = f"temp_{name}.cu"
+    temp_ptx_file = f"temp_{name}.ptx"
+    temp_cubin_file = f"temp_{name}.cubin"
+
+    with open(temp_cu_file, "w") as f:
+        f.write(cuda_source)
+
+    try:
+        # Step 1: Compile to cubin
+        cmd_cubin = [
+            "nvcc",
+            "-cubin",
+            "-O3",
+            "-arch=sm_120",  # adjust based on your GPU architecture
+            "-o",
+            temp_cubin_file,
+            temp_cu_file,
+        ]
+
+        print(f"Running: {' '.join(cmd_cubin)}")
+        result = subprocess.run(cmd_cubin, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"Error generating cubin: {result.stderr}")
+            return
+
+        # Step 2: Extract SASS from cubin using cuobjdump
+        cmd_sass = [
+            "cuobjdump",
+            "--dump-sass",
+            temp_cubin_file,
+        ]
+
+        print(f"Running: {' '.join(cmd_sass)}")
+        result = subprocess.run(cmd_sass, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            # Write SASS output to file
+            with open(output_file, "w") as f:
+                f.write(result.stdout)
+
+            print(f"SASS code successfully saved to {output_file}")
+            # Display first few lines of SASS
+            lines = result.stdout.split("\n")
+            print(f"\nFirst 30 lines of {output_file}:")
+            print("=" * 50)
+            for i, line in enumerate(lines[:30]):
+                print(f"{i+1:3d}: {line}")
+            if len(lines) > 30:
+                print(f"... ({len(lines) - 30} more lines)")
+            print("=" * 50)
+        else:
+            print(f"Error generating SASS: {result.stderr}")
+
+    finally:
+        # Clean up temporary files
+        for temp_file in [temp_cu_file, temp_ptx_file, temp_cubin_file]:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark CUDA kernels.")
     subparsers = parser.add_subparsers(dest="mode", required=True)
@@ -198,6 +273,17 @@ def main():
     )
     ptx_parser.add_argument(
         "-o", "--output", help="Output file for PTX code (default: {kernel}.ptx)."
+    )
+
+    # Dump SASS mode
+    sass_parser = subparsers.add_parser(
+        "dump-sass", help="Dump SASS (CUDA assembly) code for a selected kernel."
+    )
+    sass_parser.add_argument(
+        "kernel", choices=["simple"], help="Kernel to dump SASS for."
+    )
+    sass_parser.add_argument(
+        "-o", "--output", help="Output file for SASS code (default: {kernel}.sass)."
     )
 
     # PTX dump mode
@@ -231,6 +317,10 @@ def main():
     elif args.mode == "dump_ptx":
         # Dump PTX code
         dump_ptx("simple", simple_src)
+    elif args.mode == "dump-sass":
+        if args.kernel == "simple":
+            output_file = args.output if args.output else "simple.sass"
+            dump_sass("simple", simple_src, output_file)
 
 
 if __name__ == "__main__":
