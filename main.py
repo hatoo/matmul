@@ -2,6 +2,8 @@ import torch
 from torch.utils.cpp_extension import load_inline
 import time
 import argparse
+import os
+import subprocess
 from typing import Any
 
 from collections.abc import Callable
@@ -115,6 +117,60 @@ def profile(
     )
 
 
+def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
+    """
+    Dump PTX code for a CUDA kernel.
+    Args:
+        name: kernel name
+        cuda_source: CUDA source code
+        output_file: output file path (optional, defaults to {name}.ptx)
+    """
+    if output_file is None:
+        output_file = f"{name}.ptx"
+
+    print(f"Dumping PTX for {name} kernel to {output_file}...")
+
+    # Create a temporary source file
+    temp_cu_file = f"temp_{name}.cu"
+    with open(temp_cu_file, "w") as f:
+        f.write(cuda_source)
+
+    try:
+        # Use nvcc to compile to PTX
+        cmd = [
+            "nvcc",
+            "--ptx",
+            "-O3",
+            "-arch=sm_70",  # adjust based on your GPU architecture
+            "-o",
+            output_file,
+            temp_cu_file,
+        ]
+
+        print(f"Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            print(f"PTX code successfully saved to {output_file}")
+            # Display first few lines of PTX
+            with open(output_file, "r") as f:
+                lines = f.readlines()
+                print(f"\nFirst 20 lines of {output_file}:")
+                print("=" * 50)
+                for i, line in enumerate(lines[:20]):
+                    print(f"{i+1:3d}: {line.rstrip()}")
+                if len(lines) > 20:
+                    print(f"... ({len(lines) - 20} more lines)")
+                print("=" * 50)
+        else:
+            print(f"Error generating PTX: {result.stderr}")
+
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_cu_file):
+            os.remove(temp_cu_file)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark CUDA kernels.")
     subparsers = parser.add_subparsers(dest="mode", required=True)
@@ -133,6 +189,20 @@ def main():
         "kernel", choices=["torch", "simple"], help="Kernel to profile."
     )
 
+    # Dump PTX mode
+    ptx_parser = subparsers.add_parser(
+        "dump-ptx", help="Dump PTX code for a selected kernel."
+    )
+    ptx_parser.add_argument(
+        "kernel", choices=["simple"], help="Kernel to dump PTX for."
+    )
+    ptx_parser.add_argument(
+        "-o", "--output", help="Output file for PTX code (default: {kernel}.ptx)."
+    )
+
+    # PTX dump mode
+    subparsers.add_parser("dump_ptx", help="Dump PTX code for a kernel.")
+
     args = parser.parse_args()
 
     n, m, k = 4096, 4096, 4096
@@ -146,6 +216,10 @@ def main():
             profile(n, m, k, "torch", launch_torch)
         elif args.kernel == "simple":
             profile(n, m, k, "simple", launch_simple)
+    elif args.mode == "dump-ptx":
+        if args.kernel == "simple":
+            output_file = args.output if args.output else "simple.ptx"
+            dump_ptx("simple", simple_src, output_file)
     elif args.mode == "verify":
         # Verify the kernel
         verify(n, m, k, "torch", launch_torch)
@@ -154,6 +228,9 @@ def main():
         # Benchmark the kernel
         benchmark(n, m, k, "torch", launch_torch)
         benchmark(n, m, k, "simple", launch_simple)
+    elif args.mode == "dump_ptx":
+        # Dump PTX code
+        dump_ptx("simple", simple_src)
 
 
 if __name__ == "__main__":

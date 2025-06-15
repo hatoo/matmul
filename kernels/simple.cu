@@ -1,3 +1,5 @@
+#include <cstdint>
+
 __global__ void simple_matmul_kernel(float *a, float *b, float *c, int n, int m,
                                      int k) {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
