@@ -264,30 +264,23 @@ def main():
         "kernel", choices=["torch", "simple"], help="Kernel to profile."
     )
 
-    # Dump PTX mode
-    ptx_parser = subparsers.add_parser(
-        "dump-ptx", help="Dump PTX code for a selected kernel."
+    # Dump mode (PTX or SASS)
+    dump_parser = subparsers.add_parser(
+        "dump", help="Dump PTX or SASS code for a selected kernel."
     )
-    ptx_parser.add_argument(
-        "kernel", choices=["simple"], help="Kernel to dump PTX for."
+    dump_parser.add_argument(
+        "kernel", choices=["simple"], help="Kernel to dump code for."
     )
-    ptx_parser.add_argument(
-        "-o", "--output", help="Output file for PTX code (default: {kernel}.ptx)."
+    dump_parser.add_argument(
+        "-f",
+        "--format",
+        choices=["ptx", "sass"],
+        default="ptx",
+        help="Output format: PTX or SASS (default: ptx).",
     )
-
-    # Dump SASS mode
-    sass_parser = subparsers.add_parser(
-        "dump-sass", help="Dump SASS (CUDA assembly) code for a selected kernel."
+    dump_parser.add_argument(
+        "-o", "--output", help="Output file (default: {kernel}.{format})."
     )
-    sass_parser.add_argument(
-        "kernel", choices=["simple"], help="Kernel to dump SASS for."
-    )
-    sass_parser.add_argument(
-        "-o", "--output", help="Output file for SASS code (default: {kernel}.sass)."
-    )
-
-    # PTX dump mode
-    subparsers.add_parser("dump_ptx", help="Dump PTX code for a kernel.")
 
     args = parser.parse_args()
 
@@ -302,10 +295,14 @@ def main():
             profile(n, m, k, "torch", launch_torch)
         elif args.kernel == "simple":
             profile(n, m, k, "simple", launch_simple)
-    elif args.mode == "dump-ptx":
+    elif args.mode == "dump":
         if args.kernel == "simple":
-            output_file = args.output if args.output else "simple.ptx"
-            dump_ptx("simple", simple_src, output_file)
+            if args.format == "ptx":
+                output_file = args.output if args.output else "simple.ptx"
+                dump_ptx("simple", simple_src, output_file)
+            elif args.format == "sass":
+                output_file = args.output if args.output else "simple.sass"
+                dump_sass("simple", simple_src, output_file)
     elif args.mode == "verify":
         # Verify the kernel
         verify(n, m, k, "torch", launch_torch)
@@ -314,13 +311,6 @@ def main():
         # Benchmark the kernel
         benchmark(n, m, k, "torch", launch_torch)
         benchmark(n, m, k, "simple", launch_simple)
-    elif args.mode == "dump_ptx":
-        # Dump PTX code
-        dump_ptx("simple", simple_src)
-    elif args.mode == "dump-sass":
-        if args.kernel == "simple":
-            output_file = args.output if args.output else "simple.sass"
-            dump_sass("simple", simple_src, output_file)
 
 
 if __name__ == "__main__":
