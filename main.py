@@ -141,7 +141,7 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
             "nvcc",
             "--ptx",
             "-O3",
-            "-arch=sm_70",  # adjust based on your GPU architecture
+            "-arch=sm_120",  # adjust based on your GPU architecture
             "-o",
             output_file,
             temp_cu_file,
