@@ -32,30 +32,44 @@ def benchmark(
     k: int,
     name: str,
     kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
+    warmup_times: int = 4,
+    times: int = 8,
 ):
+    """
+    Benchmark a kernel for matrix multiplication.
+    Args:
+        n, m, k: matrix dimensions
+        name: kernel name
+        kernel: function to run (a, b, c)
+        warmup_times: number of warmup runs
+        times: number of timed runs
+    """
     a = torch.randn(n, k, dtype=torch.float32, device="cuda")
     b = torch.randn(k, m, dtype=torch.float32, device="cuda")
     c = torch.zeros(n, m, dtype=torch.float32, device="cuda")
 
-    warmup_times = 4
-    times = 8
-    sum = 0
-
+    # Warmup
     for _ in range(warmup_times):
         torch.cuda.synchronize()
         kernel(a, b, c)
         torch.cuda.synchronize()
 
+    # Timed runs
+    elapsed_times = []
     for _ in range(times):
         torch.cuda.synchronize()
         start = time.perf_counter_ns()
         kernel(a, b, c)
         torch.cuda.synchronize()
         end = time.perf_counter_ns()
-        sum += end - start
-    average_time = sum / times
+        elapsed_times.append(end - start)
+    average_time = sum(elapsed_times) / times
+    min_time = min(elapsed_times)
+    max_time = max(elapsed_times)
 
-    print(f"{name} kernel: {n}x{m}x{k} took {average_time / 1e6:.2f} ms on average.")
+    print(
+        f"{name} kernel: {n}x{m}x{k} avg: {average_time / 1e6:.2f} ms, min: {min_time / 1e6:.2f} ms, max: {max_time / 1e6:.2f} ms."
+    )
 
 
 def verify(
