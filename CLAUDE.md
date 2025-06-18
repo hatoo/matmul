@@ -35,6 +35,8 @@ uv run main.py profile simple    # Profile custom simple kernel
 uv run main.py dump simple -f ptx    # Dump PTX assembly
 uv run main.py dump simple -f sass   # Dump SASS assembly
 uv run main.py dump simple -o custom.ptx  # Custom output file
+uv run main.py dump simple -f ptx -d # Dump PTX with debug info
+uv run main.py dump simple -f sass -d # Dump SASS with debug info
 ```
 
 ### Dependencies

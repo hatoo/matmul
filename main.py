@@ -117,13 +117,14 @@ def profile(
     )
 
 
-def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
+def dump_ptx(name: str, cuda_source: str, output_file: str | None = None, debug: bool = False):
     """
     Dump PTX code for a CUDA kernel.
     Args:
         name: kernel name
         cuda_source: CUDA source code
         output_file: output file path (optional, defaults to {name}.ptx)
+        debug: include debug information (default: False)
     """
     if output_file is None:
         output_file = f"{name}.ptx"
@@ -140,12 +141,15 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
         cmd = [
             "nvcc",
             "--ptx",
-            "-O3",
+            "-O3" if not debug else "-O0",
             "-arch=sm_120",  # adjust based on your GPU architecture
             "-o",
             output_file,
             temp_cu_file,
         ]
+        
+        if debug:
+            cmd.extend(["-g", "-G", "--source-in-ptx"])
 
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -171,13 +175,14 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None):
             os.remove(temp_cu_file)
 
 
-def dump_sass(name: str, cuda_source: str, output_file: str | None = None):
+def dump_sass(name: str, cuda_source: str, output_file: str | None = None, debug: bool = False):
     """
     Dump SASS (CUDA assembly) code for a CUDA kernel.
     Args:
         name: kernel name
         cuda_source: CUDA source code
         output_file: output file path (optional, defaults to {name}.sass)
+        debug: include debug information (default: False)
     """
     if output_file is None:
         output_file = f"{name}.sass"
@@ -197,12 +202,15 @@ def dump_sass(name: str, cuda_source: str, output_file: str | None = None):
         cmd_cubin = [
             "nvcc",
             "-cubin",
-            "-O3",
+            "-O3" if not debug else "-O0",
             "-arch=sm_120",  # adjust based on your GPU architecture
             "-o",
             temp_cubin_file,
             temp_cu_file,
         ]
+        
+        if debug:
+            cmd_cubin.extend(["-g", "-G"])
 
         print(f"Running: {' '.join(cmd_cubin)}")
         result = subprocess.run(cmd_cubin, capture_output=True, text=True)
@@ -281,6 +289,9 @@ def main():
     dump_parser.add_argument(
         "-o", "--output", help="Output file (default: {kernel}.{format})."
     )
+    dump_parser.add_argument(
+        "-d", "--debug", action="store_true", help="Include debug information."
+    )
 
     args = parser.parse_args()
 
@@ -299,10 +310,10 @@ def main():
         if args.kernel == "simple":
             if args.format == "ptx":
                 output_file = args.output if args.output else "simple.ptx"
-                dump_ptx("simple", simple_src, output_file)
+                dump_ptx("simple", simple_src, output_file, args.debug)
             elif args.format == "sass":
                 output_file = args.output if args.output else "simple.sass"
-                dump_sass("simple", simple_src, output_file)
+                dump_sass("simple", simple_src, output_file, args.debug)
     elif args.mode == "verify":
         # Verify the kernel
         verify(n, m, k, "torch", launch_torch)
