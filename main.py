@@ -11,6 +11,9 @@ from collections.abc import Callable
 with open("kernels/simple.cu", "r") as f:
     simple_src = f.read()
 
+with open("kernels/tile.cu", "r") as f:
+    tile_src = f.read()
+
 simple: Any = load_inline(
     name="simple",
     cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
@@ -27,6 +30,24 @@ def launch_simple(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
 
     # Call the CUDA kernel
     simple.simple(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
+
+
+tile: Any = load_inline(
+    name="tile",
+    cpp_sources="void tile(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+    cuda_sources=tile_src,
+    functions="tile",
+    with_cuda=True,
+    extra_cuda_cflags=["-O3"],
+)
+
+
+def launch_tile(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+    n, k = a.shape
+    _k, m = b.shape
+
+    # Call the CUDA kernel
+    tile.tile(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
 
 
 def benchmark(
@@ -310,6 +331,8 @@ def main():
             profile(m, n, k, "torch", launch_torch)
         elif args.kernel == "simple":
             profile(m, n, k, "simple", launch_simple)
+        elif args.kernel == "tile":
+            profile(m, n, k, "tile", launch_tile)
     elif args.mode == "dump":
         if args.kernel == "simple":
             if args.format == "ptx":
@@ -322,10 +345,12 @@ def main():
         # Verify the kernel
         verify(m, n, k, "torch", launch_torch)
         verify(m, n, k, "simple", launch_simple)
+        verify(m, n, k, "tile", launch_tile)
     elif args.mode == "benchmark":
         # Benchmark the kernel
         benchmark(m, n, k, "torch", launch_torch)
         benchmark(m, n, k, "simple", launch_simple)
+        benchmark(m, n, k, "simple", launch_tile)
 
 
 if __name__ == "__main__":
