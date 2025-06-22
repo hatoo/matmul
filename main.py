@@ -13,7 +13,7 @@ with open("kernels/simple.cu", "r") as f:
 
 simple: Any = load_inline(
     name="simple",
-    cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int n, int m, int k);",
+    cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
     cuda_sources=simple_src,
     functions="simple",
     with_cuda=True,
@@ -76,16 +76,16 @@ def benchmark(
 
 
 def verify(
-    n: int,
     m: int,
+    n: int,
     k: int,
     name: str,
     kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
 ):
-    a = torch.randn(n, k, dtype=torch.float32, device="cuda")
-    b = torch.randn(k, m, dtype=torch.float32, device="cuda")
-    c = torch.zeros(n, m, dtype=torch.float32, device="cuda")
-    c_ref = torch.zeros(n, m, dtype=torch.float32, device="cuda")
+    a = torch.randn(m, k, dtype=torch.float32, device="cuda")
+    b = torch.randn(k, n, dtype=torch.float32, device="cuda")
+    c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
+    c_ref = torch.zeros(m, n, dtype=torch.float32, device="cuda")
     c_ref = torch.matmul(a, b)
 
     kernel(a, b, c)
@@ -97,15 +97,15 @@ def verify(
 
 
 def profile(
-    n: int,
     m: int,
+    n: int,
     k: int,
     name: str,
     kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
 ):
-    a = torch.randn(n, k, dtype=torch.float32, device="cuda")
-    b = torch.randn(k, m, dtype=torch.float32, device="cuda")
-    c = torch.zeros(n, m, dtype=torch.float32, device="cuda")
+    a = torch.randn(m, k, dtype=torch.float32, device="cuda")
+    b = torch.randn(k, n, dtype=torch.float32, device="cuda")
+    c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
     torch.cuda.synchronize()
     start = time.perf_counter_ns()
     kernel(a, b, c)
@@ -117,7 +117,9 @@ def profile(
     )
 
 
-def dump_ptx(name: str, cuda_source: str, output_file: str | None = None, debug: bool = False):
+def dump_ptx(
+    name: str, cuda_source: str, output_file: str | None = None, debug: bool = False
+):
     """
     Dump PTX code for a CUDA kernel.
     Args:
@@ -147,7 +149,7 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None, debug:
             output_file,
             temp_cu_file,
         ]
-        
+
         if debug:
             cmd.extend(["-g", "-G", "--source-in-ptx"])
 
@@ -175,7 +177,9 @@ def dump_ptx(name: str, cuda_source: str, output_file: str | None = None, debug:
             os.remove(temp_cu_file)
 
 
-def dump_sass(name: str, cuda_source: str, output_file: str | None = None, debug: bool = False):
+def dump_sass(
+    name: str, cuda_source: str, output_file: str | None = None, debug: bool = False
+):
     """
     Dump SASS (CUDA assembly) code for a CUDA kernel.
     Args:
@@ -208,7 +212,7 @@ def dump_sass(name: str, cuda_source: str, output_file: str | None = None, debug
             temp_cubin_file,
             temp_cu_file,
         ]
-        
+
         if debug:
             cmd_cubin.extend(["-g", "-G"])
 
@@ -295,7 +299,7 @@ def main():
 
     args = parser.parse_args()
 
-    n, m, k = 4096, 4096, 4096
+    m, n, k = 4096, 4096, 4096
 
     # Define a simple kernel function for matrix multiplication
     def launch_torch(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
@@ -303,9 +307,9 @@ def main():
 
     if args.mode == "profile":
         if args.kernel == "torch":
-            profile(n, m, k, "torch", launch_torch)
+            profile(m, n, k, "torch", launch_torch)
         elif args.kernel == "simple":
-            profile(n, m, k, "simple", launch_simple)
+            profile(m, n, k, "simple", launch_simple)
     elif args.mode == "dump":
         if args.kernel == "simple":
             if args.format == "ptx":
@@ -316,12 +320,12 @@ def main():
                 dump_sass("simple", simple_src, output_file, args.debug)
     elif args.mode == "verify":
         # Verify the kernel
-        verify(n, m, k, "torch", launch_torch)
-        verify(n, m, k, "simple", launch_simple)
+        verify(m, n, k, "torch", launch_torch)
+        verify(m, n, k, "simple", launch_simple)
     elif args.mode == "benchmark":
         # Benchmark the kernel
-        benchmark(n, m, k, "torch", launch_torch)
-        benchmark(n, m, k, "simple", launch_simple)
+        benchmark(m, n, k, "torch", launch_torch)
+        benchmark(m, n, k, "simple", launch_simple)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 #include <cstdint>
 
-__global__ void simple_matmul_kernel(float *a, float *b, float *c, int n, int m,
+__global__ void simple_matmul_kernel(float *a, float *b, float *c, int m, int n,
                                      int k) {
   int row = blockIdx.x * blockDim.x + threadIdx.x;
   int col = blockIdx.y * blockDim.y + threadIdx.y;
@@ -14,11 +14,11 @@ __global__ void simple_matmul_kernel(float *a, float *b, float *c, int n, int m,
   }
 }
 
-void simple(uintptr_t a, uintptr_t b, uintptr_t c, int n, int m, int k) {
+void simple(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k) {
   dim3 blockSize(16, 16);
   dim3 gridSize((m + blockSize.x - 1) / blockSize.x,
                 (n + blockSize.y - 1) / blockSize.y);
 
   simple_matmul_kernel<<<gridSize, blockSize>>>((float *)a, (float *)b,
-                                                (float *)c, n, m, k);
+                                                (float *)c, m, n, k);
 }
