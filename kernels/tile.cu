@@ -1,7 +1,6 @@
 #include <cstdint>
 
-const int TILE_SIZE = 16;
-
+template <int TILE_SIZE>
 __global__ void tile_matmul_kernel(float *a, float *b, float *c, int m, int n,
                                    int k) {
 
@@ -58,10 +57,12 @@ __global__ void tile_matmul_kernel(float *a, float *b, float *c, int m, int n,
 }
 
 void tile(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k) {
+  const int TILE_SIZE = 16;
+
   dim3 blockSize(TILE_SIZE, TILE_SIZE);
   dim3 gridSize((m + blockSize.x - 1) / blockSize.x,
                 (n + blockSize.y - 1) / blockSize.y);
 
-  tile_matmul_kernel<<<gridSize, blockSize>>>((float *)a, (float *)b,
-                                              (float *)c, m, n, k);
+  tile_matmul_kernel<TILE_SIZE>
+      <<<gridSize, blockSize>>>((float *)a, (float *)b, (float *)c, m, n, k);
 }
