@@ -5,137 +5,185 @@ import argparse
 import os
 import subprocess
 from typing import Any
+from abc import ABC, abstractmethod
 
 from collections.abc import Callable
 
-with open("kernels/simple.cu", "r") as f:
-    simple_src = f.read()
 
-with open("kernels/tile.cu", "r") as f:
-    tile_src = f.read()
+class KernelBase(ABC):
+    """Base class for CUDA matrix multiplication kernels."""
 
-simple: Any = load_inline(
-    name="simple",
-    cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
-    cuda_sources=simple_src,
-    functions="simple",
-    with_cuda=True,
-    extra_cuda_cflags=["-O3"],
-)
+    def __init__(self, name: str):
+        self.name = name
+        self._kernel_module = None
 
+    @abstractmethod
+    def _load_kernel(self) -> Any:
+        """Load the CUDA kernel module."""
+        pass
 
-def launch_simple(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
-    n, k = a.shape
-    _k, m = b.shape
+    @property
+    def kernel_module(self) -> Any:
+        """Get the loaded kernel module, loading it if necessary."""
+        if self._kernel_module is None:
+            self._kernel_module = self._load_kernel()
+        return self._kernel_module
 
-    # Call the CUDA kernel
-    simple.simple(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
+    @abstractmethod
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        """Launch the kernel with given tensors."""
+        pass
 
+    def verify(self, m: int, n: int, k: int):
+        """Verify kernel correctness against PyTorch reference."""
+        a = torch.randn(m, k, dtype=torch.float32, device="cuda")
+        b = torch.randn(k, n, dtype=torch.float32, device="cuda")
+        c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
+        c_ref = torch.matmul(a, b)
 
-tile: Any = load_inline(
-    name="tile",
-    cpp_sources="void tile(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
-    cuda_sources=tile_src,
-    functions="tile",
-    with_cuda=True,
-    extra_cuda_cflags=["-O3"],
-)
-
-
-def launch_tile(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
-    n, k = a.shape
-    _k, m = b.shape
-
-    # Call the CUDA kernel
-    tile.tile(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
-
-
-def benchmark(
-    n: int,
-    m: int,
-    k: int,
-    name: str,
-    kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
-    warmup_times: int = 4,
-    times: int = 8,
-):
-    """
-    Benchmark a kernel for matrix multiplication.
-    Args:
-        n, m, k: matrix dimensions
-        name: kernel name
-        kernel: function to run (a, b, c)
-        warmup_times: number of warmup runs
-        times: number of timed runs
-    """
-    a = torch.randn(n, k, dtype=torch.float32, device="cuda")
-    b = torch.randn(k, m, dtype=torch.float32, device="cuda")
-    c = torch.zeros(n, m, dtype=torch.float32, device="cuda")
-
-    # Warmup
-    for _ in range(warmup_times):
-        torch.cuda.synchronize()
-        kernel(a, b, c)
+        self.launch(a, b, c)
         torch.cuda.synchronize()
 
-    # Timed runs
-    elapsed_times = []
-    for _ in range(times):
+        if torch.allclose(c, c_ref, rtol=1e-02, atol=1e-03):
+            print(f"{self.name} kernel verification passed.")
+            return True
+        else:
+            print(f"{self.name} kernel verification failed.")
+            return False
+
+    def benchmark(self, n: int, m: int, k: int, warmup_times: int = 4, times: int = 8):
+        """Benchmark the kernel performance."""
+        a = torch.randn(n, k, dtype=torch.float32, device="cuda")
+        b = torch.randn(k, m, dtype=torch.float32, device="cuda")
+        c = torch.zeros(n, m, dtype=torch.float32, device="cuda")
+
+        # Warmup
+        for _ in range(warmup_times):
+            torch.cuda.synchronize()
+            self.launch(a, b, c)
+            torch.cuda.synchronize()
+
+        # Timed runs
+        elapsed_times = []
+        for _ in range(times):
+            torch.cuda.synchronize()
+            start = time.perf_counter_ns()
+            self.launch(a, b, c)
+            torch.cuda.synchronize()
+            end = time.perf_counter_ns()
+            elapsed_times.append(end - start)
+
+        average_time = sum(elapsed_times) / times
+        min_time = min(elapsed_times)
+        max_time = max(elapsed_times)
+
+        print(
+            f"{self.name} kernel: {n}x{m}x{k} avg: {average_time / 1e6:.2f} ms, "
+            f"min: {min_time / 1e6:.2f} ms, max: {max_time / 1e6:.2f} ms."
+        )
+
+        return average_time, min_time, max_time
+
+    def profile(self, m: int, n: int, k: int):
+        """Profile the kernel with a single run."""
+        a = torch.randn(m, k, dtype=torch.float32, device="cuda")
+        b = torch.randn(k, n, dtype=torch.float32, device="cuda")
+        c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
+
         torch.cuda.synchronize()
         start = time.perf_counter_ns()
-        kernel(a, b, c)
+        self.launch(a, b, c)
         torch.cuda.synchronize()
         end = time.perf_counter_ns()
-        elapsed_times.append(end - start)
-    average_time = sum(elapsed_times) / times
-    min_time = min(elapsed_times)
-    max_time = max(elapsed_times)
 
-    print(
-        f"{name} kernel: {n}x{m}x{k} avg: {average_time / 1e6:.2f} ms, min: {min_time / 1e6:.2f} ms, max: {max_time / 1e6:.2f} ms."
-    )
+        elapsed = (end - start) / 1e6
+        print(
+            f"{self.name} kernel: {n}x{m}x{k} took {elapsed:.2f} ms (profile mode, single run)."
+        )
+        return elapsed
+
+    def dump_ptx(self, output_file: str | None = None, debug: bool = False):
+        """Dump PTX code for this kernel."""
+        if not hasattr(self, "cuda_source"):
+            raise NotImplementedError(
+                f"PTX dumping not supported for {self.name} kernel"
+            )
+
+        if output_file is None:
+            output_file = f"{self.name}.ptx"
+        dump_ptx(self.name, getattr(self, "cuda_source"), output_file, debug)
+
+    def dump_sass(self, output_file: str | None = None, debug: bool = False):
+        """Dump SASS code for this kernel."""
+        if not hasattr(self, "cuda_source"):
+            raise NotImplementedError(
+                f"SASS dumping not supported for {self.name} kernel"
+            )
+
+        if output_file is None:
+            output_file = f"{self.name}.sass"
+        dump_sass(self.name, getattr(self, "cuda_source"), output_file, debug)
 
 
-def verify(
-    m: int,
-    n: int,
-    k: int,
-    name: str,
-    kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
-):
-    a = torch.randn(m, k, dtype=torch.float32, device="cuda")
-    b = torch.randn(k, n, dtype=torch.float32, device="cuda")
-    c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
-    c_ref = torch.zeros(m, n, dtype=torch.float32, device="cuda")
-    c_ref = torch.matmul(a, b)
+class TorchKernel(KernelBase):
+    """PyTorch reference implementation."""
 
-    kernel(a, b, c)
-    torch.cuda.synchronize()
-    if torch.allclose(c, c_ref, rtol=1e-02, atol=1e-03):
-        print(f"{name} kernel verification passed.")
-    else:
-        print(f"{name} kernel verification failed.")
+    def __init__(self):
+        super().__init__("torch")
+
+    def _load_kernel(self) -> Any:
+        return None  # No CUDA module needed for PyTorch
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        torch.matmul(a, b, out=c)
 
 
-def profile(
-    m: int,
-    n: int,
-    k: int,
-    name: str,
-    kernel: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], None],
-):
-    a = torch.randn(m, k, dtype=torch.float32, device="cuda")
-    b = torch.randn(k, n, dtype=torch.float32, device="cuda")
-    c = torch.zeros(m, n, dtype=torch.float32, device="cuda")
-    torch.cuda.synchronize()
-    start = time.perf_counter_ns()
-    kernel(a, b, c)
-    torch.cuda.synchronize()
-    end = time.perf_counter_ns()
-    elapsed = (end - start) / 1e6
-    print(
-        f"{name} kernel: {n}x{m}x{k} took {elapsed:.2f} ms (profile mode, single run)."
-    )
+class SimpleKernel(KernelBase):
+    """Simple CUDA kernel implementation."""
+
+    def __init__(self):
+        super().__init__("simple")
+        with open("kernels/simple.cu", "r") as f:
+            self.cuda_source = f.read()
+
+    def _load_kernel(self) -> Any:
+        return load_inline(
+            name="simple",
+            cpp_sources="void simple(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+            cuda_sources=self.cuda_source,
+            functions="simple",
+            with_cuda=True,
+            extra_cuda_cflags=["-O3"],
+        )
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        n, k = a.shape
+        _k, m = b.shape
+        self.kernel_module.simple(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
+
+
+class TileKernel(KernelBase):
+    """Tiled CUDA kernel implementation."""
+
+    def __init__(self):
+        super().__init__("tile")
+        with open("kernels/tile.cu", "r") as f:
+            self.cuda_source = f.read()
+
+    def _load_kernel(self) -> Any:
+        return load_inline(
+            name="tile",
+            cpp_sources="void tile(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+            cuda_sources=self.cuda_source,
+            functions="tile",
+            with_cuda=True,
+            extra_cuda_cflags=["-O3"],
+        )
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        n, k = a.shape
+        _k, m = b.shape
+        self.kernel_module.tile(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
 
 
 def dump_ptx(
@@ -279,6 +327,11 @@ def dump_sass(
                 os.remove(temp_file)
 
 
+def get_available_kernels():
+    """Get a dictionary of all available kernel implementations."""
+    return {"torch": TorchKernel(), "simple": SimpleKernel(), "tile": TileKernel()}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark CUDA kernels.")
     subparsers = parser.add_subparsers(dest="mode", required=True)
@@ -294,7 +347,7 @@ def main():
         "profile", help="Profile a selected kernel (single run)."
     )
     profile_parser.add_argument(
-        "kernel", choices=["torch", "simple"], help="Kernel to profile."
+        "kernel", choices=["torch", "simple", "tile"], help="Kernel to profile."
     )
 
     # Dump mode (PTX or SASS)
@@ -302,7 +355,7 @@ def main():
         "dump", help="Dump PTX or SASS code for a selected kernel."
     )
     dump_parser.add_argument(
-        "kernel", choices=["simple"], help="Kernel to dump code for."
+        "kernel", choices=["simple", "tile"], help="Kernel to dump code for."
     )
     dump_parser.add_argument(
         "-f",
@@ -322,35 +375,28 @@ def main():
 
     m, n, k = 4096, 4096, 4096
 
-    # Define a simple kernel function for matrix multiplication
-    def launch_torch(a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
-        torch.matmul(a, b, out=c)
+    # Initialize kernel instances
+    kernels = {"torch": TorchKernel(), "simple": SimpleKernel(), "tile": TileKernel()}
 
     if args.mode == "profile":
-        if args.kernel == "torch":
-            profile(m, n, k, "torch", launch_torch)
-        elif args.kernel == "simple":
-            profile(m, n, k, "simple", launch_simple)
-        elif args.kernel == "tile":
-            profile(m, n, k, "tile", launch_tile)
+        kernel = kernels[args.kernel]
+        kernel.profile(m, n, k)
     elif args.mode == "dump":
-        if args.kernel == "simple":
-            if args.format == "ptx":
-                output_file = args.output if args.output else "simple.ptx"
-                dump_ptx("simple", simple_src, output_file, args.debug)
-            elif args.format == "sass":
-                output_file = args.output if args.output else "simple.sass"
-                dump_sass("simple", simple_src, output_file, args.debug)
+        kernel = kernels[args.kernel]
+        if args.format == "ptx":
+            output_file = args.output if args.output else f"{args.kernel}.ptx"
+            kernel.dump_ptx(output_file, args.debug)
+        elif args.format == "sass":
+            output_file = args.output if args.output else f"{args.kernel}.sass"
+            kernel.dump_sass(output_file, args.debug)
     elif args.mode == "verify":
-        # Verify the kernel
-        verify(m, n, k, "torch", launch_torch)
-        verify(m, n, k, "simple", launch_simple)
-        verify(m, n, k, "tile", launch_tile)
+        # Verify all kernels
+        for name, kernel in kernels.items():
+            kernel.verify(m, n, k)
     elif args.mode == "benchmark":
-        # Benchmark the kernel
-        benchmark(m, n, k, "torch", launch_torch)
-        benchmark(m, n, k, "simple", launch_simple)
-        benchmark(m, n, k, "simple", launch_tile)
+        # Benchmark all kernels
+        for name, kernel in kernels.items():
+            kernel.benchmark(n, m, k)
 
 
 if __name__ == "__main__":
