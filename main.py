@@ -186,6 +186,32 @@ class TileKernel(KernelBase):
         self.kernel_module.tile(a.data_ptr(), b.data_ptr(), c.data_ptr(), n, m, k)
 
 
+class Cute01Kernel(KernelBase):
+    """Cute 01 CUDA kernel implementation."""
+
+    def __init__(self):
+        super().__init__("cute01")
+        with open("kernels/cute01.cu", "r") as f:
+            self.cuda_source = f.read()
+
+    def _load_kernel(self) -> Any:
+        return load_inline(
+            name="cute01",
+            cpp_sources="void cute01(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+            cuda_sources=self.cuda_source,
+            functions="cute01",
+            with_cuda=True,
+            extra_cuda_cflags=["-O3"],
+            # TODO
+            extra_include_paths=["/home/hatoo/cutlass/include"],
+        )
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        m, k = a.shape
+        _k, n = b.shape
+        self.kernel_module.cute01(a.data_ptr(), b.data_ptr(), c.data_ptr(), m, n, k)
+
+
 def dump_ptx(
     name: str, cuda_source: str, output_file: str | None = None, debug: bool = False
 ):
@@ -329,7 +355,12 @@ def dump_sass(
 
 def get_available_kernels():
     """Get a dictionary of all available kernel implementations."""
-    return {"torch": TorchKernel(), "simple": SimpleKernel(), "tile": TileKernel()}
+    return {
+        "torch": TorchKernel(),
+        "simple": SimpleKernel(),
+        "tile": TileKernel(),
+        "cute01": Cute01Kernel(),
+    }
 
 
 def main():
@@ -347,7 +378,9 @@ def main():
         "profile", help="Profile a selected kernel (single run)."
     )
     profile_parser.add_argument(
-        "kernel", choices=["torch", "simple", "tile"], help="Kernel to profile."
+        "kernel",
+        choices=["torch", "simple", "tile", "cute01"],
+        help="Kernel to profile.",
     )
 
     # Dump mode (PTX or SASS)
@@ -355,7 +388,7 @@ def main():
         "dump", help="Dump PTX or SASS code for a selected kernel."
     )
     dump_parser.add_argument(
-        "kernel", choices=["simple", "tile"], help="Kernel to dump code for."
+        "kernel", choices=["simple", "tile", "cute01"], help="Kernel to dump code for."
     )
     dump_parser.add_argument(
         "-f",
@@ -376,7 +409,12 @@ def main():
     m, n, k = 4096, 4096, 4096
 
     # Initialize kernel instances
-    kernels = {"torch": TorchKernel(), "simple": SimpleKernel(), "tile": TileKernel()}
+    kernels = {
+        "torch": TorchKernel(),
+        "simple": SimpleKernel(),
+        "tile": TileKernel(),
+        "cute01": Cute01Kernel(),
+    }
 
     if args.mode == "profile":
         kernel = kernels[args.kernel]
