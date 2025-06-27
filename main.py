@@ -363,9 +363,22 @@ def get_available_kernels():
     }
 
 
+# Define kernel choices to avoid repetition
+def get_kernel_choices():
+    """Get kernel choices from available kernels."""
+    kernels = get_available_kernels()
+    all_choices = list(kernels.keys())
+    # Dumpable kernels are those that have CUDA source (exclude torch)
+    dumpable_choices = [name for name in all_choices if name != "torch"]
+    return all_choices, dumpable_choices
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark CUDA kernels.")
     subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    # Get kernel choices
+    all_kernel_choices, dumpable_kernel_choices = get_kernel_choices()
 
     # Benchmark mode
     subparsers.add_parser("benchmark", help="Benchmark all kernels.")
@@ -379,7 +392,7 @@ def main():
     )
     profile_parser.add_argument(
         "kernel",
-        choices=["torch", "simple", "tile", "cute01"],
+        choices=all_kernel_choices,
         help="Kernel to profile.",
     )
 
@@ -388,7 +401,7 @@ def main():
         "dump", help="Dump PTX or SASS code for a selected kernel."
     )
     dump_parser.add_argument(
-        "kernel", choices=["simple", "tile", "cute01"], help="Kernel to dump code for."
+        "kernel", choices=dumpable_kernel_choices, help="Kernel to dump code for."
     )
     dump_parser.add_argument(
         "-f",
@@ -409,12 +422,7 @@ def main():
     m, n, k = 4096, 4096, 4096
 
     # Initialize kernel instances
-    kernels = {
-        "torch": TorchKernel(),
-        "simple": SimpleKernel(),
-        "tile": TileKernel(),
-        "cute01": Cute01Kernel(),
-    }
+    kernels = get_available_kernels()
 
     if args.mode == "profile":
         kernel = kernels[args.kernel]
