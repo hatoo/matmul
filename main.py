@@ -195,6 +195,8 @@ class Cute01Kernel(KernelBase):
             self.cuda_source = f.read()
 
     def _load_kernel(self) -> Any:
+        cutlass_path = os.environ["CUTLASS_PATH"]
+
         return load_inline(
             name="cute01",
             cpp_sources="void cute01(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
@@ -202,8 +204,7 @@ class Cute01Kernel(KernelBase):
             functions="cute01",
             with_cuda=True,
             extra_cuda_cflags=["-O3"],
-            # TODO
-            extra_include_paths=["/home/hatoo/cutlass/include"],
+            extra_include_paths=[cutlass_path + "/include"],
         )
 
     def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
