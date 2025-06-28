@@ -76,7 +76,6 @@ __global__ void cute_matmul_kernel01(float *a, float *b, float *c, M m, N n,
     cute::copy(B_block_copy(cute::_, cute::_, i), B_shared_copy);
 
     cute::cp_async_fence();
-
     cute::cp_async_wait<0>();
     __syncthreads();
 
