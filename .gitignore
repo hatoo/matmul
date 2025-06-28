@@ -11,3 +11,5 @@ wheels/
 
 *.ptx
 *.sass
+
+compile_flags.txt

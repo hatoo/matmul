@@ -1,4 +1,3 @@
-#include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
 #include <cstdint>
 
