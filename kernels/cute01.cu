@@ -1,8 +1,10 @@
+#include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
 #include <cstdint>
 
-__global__ void cute_matmul_kernel01(float *a, float *b, float *c, int m, int n,
-                                     int k) {
+template <class M, class N, class K>
+__global__ void cute_matmul_kernel01(float *a, float *b, float *c, M m, N n,
+                                     K k) {
   cute::Tensor A =
       cute::make_tensor(cute::make_gmem_ptr(a), cute::make_shape(m, k),
                         cute::make_stride(k, cute::_1{}));
@@ -90,6 +92,16 @@ void cute01(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k) {
   dim3 gridSize((m + blockSize - 1) / blockSize,
                 (n + blockSize - 1) / blockSize);
 
-  cute_matmul_kernel01<<<gridSize, 256>>>((float *)a, (float *)b, (float *)c, m,
-                                          n, k);
+  if (m == 4096 && n == 4096 && k == 4096) {
+    auto m = cute::_4096{};
+    auto n = cute::_4096{};
+    auto k = cute::_4096{};
+
+    cute_matmul_kernel01<<<gridSize, 256>>>((float *)a, (float *)b, (float *)c,
+                                            m, n, k);
+
+  } else {
+    cute_matmul_kernel01<<<gridSize, 256>>>((float *)a, (float *)b, (float *)c,
+                                            m, n, k);
+  }
 }
