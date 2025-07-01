@@ -262,6 +262,7 @@ def dump_ptx(
         f.write(cuda_source)
 
     try:
+        cutlass_path = os.environ["CUTLASS_PATH"]
         # Use nvcc to compile to PTX
         cmd = [
             "nvcc",
@@ -270,6 +271,7 @@ def dump_ptx(
             "-arch=sm_120",  # adjust based on your GPU architecture
             "-o",
             output_file,
+            f"-I{cutlass_path}/include",
             temp_cu_file,
         ]
 

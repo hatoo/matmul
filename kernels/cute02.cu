@@ -1,3 +1,5 @@
+#include "cute/layout.hpp"
+#include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
 #include <cstdint>
 
@@ -30,9 +32,18 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
       cute::local_tile(C, block, block_coord,
                        cute::make_step(cute::_1{}, cute::_1{}, cute::X{}));
 
-  cute::Tensor A_block_copy = cute::local_partition(
-      A_block, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
-      threadIdx.x);
+  cute::TiledCopy copy_a = cute::make_tiled_copy(
+      cute::Copy_Atom<cute::UniversalCopy<cute::uint128_t>, float>{},
+      cute::make_layout(cute::make_shape(cute::_128{}, cute::_2{})),
+      cute::make_layout(cute::make_shape(cute::_1{}, cute::_4{})));
+  cute::ThrCopy thr_copy_a = copy_a.get_slice(threadIdx.x);
+  cute::Tensor A_block_copy = thr_copy_a.partition_S(A_block);
+
+  /*
+cute::Tensor A_block_copy = cute::local_partition(
+    A_block, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
+    threadIdx.x);
+  */
 
   cute::Tensor B_block_copy = cute::local_partition(
       B_block, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
@@ -44,16 +55,19 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   __shared__ float a_shared[128 * 8];
   __shared__ float b_shared[128 * 8];
 
-  cute::Tensor A_shared =
-      cute::make_tensor(cute::make_smem_ptr(a_shared),
-                        cute::make_shape(cute::_128{}, cute::_8{}));
+  cute::Tensor A_shared = cute::make_tensor(
+      cute::make_smem_ptr(a_shared), cute::make_shape(cute::_128{}, cute::_8{}),
+      cute::make_stride(cute::_8{}, cute::_1{}));
   cute::Tensor B_shared =
       cute::make_tensor(cute::make_smem_ptr(b_shared),
                         cute::make_shape(cute::_128{}, cute::_8{}));
 
+  cute::Tensor A_shared_copy = thr_copy_a.partition_D(A_shared);
+  /*
   cute::Tensor A_shared_copy = cute::local_partition(
       A_shared, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
       threadIdx.x);
+*/
   cute::Tensor B_shared_copy = cute::local_partition(
       B_shared, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
       threadIdx.x);
@@ -71,7 +85,8 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::clear(C_reg);
 
   for (int i = 0; i < k / 8; ++i) {
-    cute::copy(A_block_copy(cute::_, cute::_, i), A_shared_copy);
+    cute::copy(copy_a, A_block_copy(cute::_, cute::_, cute::_, i),
+               A_shared_copy);
     cute::copy(B_block_copy(cute::_, cute::_, i), B_shared_copy);
 
     cute::cp_async_fence();
