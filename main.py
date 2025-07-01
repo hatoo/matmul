@@ -6,6 +6,7 @@ import os
 import subprocess
 from typing import Any
 from abc import ABC, abstractmethod
+from utils import verbose_allclose
 
 from collections.abc import Callable
 
@@ -44,11 +45,17 @@ class KernelBase(ABC):
         self.launch(a, b, c)
         torch.cuda.synchronize()
 
-        if torch.allclose(c, c_ref, rtol=1e-02, atol=1e-03):
+        reasons = verbose_allclose(c, c_ref, rtol=1e-02, atol=1e-03)
+        if len(reasons) == 0:
             print(f"{self.name} kernel verification passed.")
             return True
         else:
+            msg = (
+                "mismatch found! custom implementation doesn't match reference: "
+                + " ".join(reasons)
+            )
             print(f"{self.name} kernel verification failed.")
+            print(msg)
             return False
 
     def benchmark(self, n: int, m: int, k: int, warmup_times: int = 4, times: int = 8):
