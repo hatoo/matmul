@@ -1,5 +1,3 @@
-#include "cute/layout.hpp"
-#include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
 #include <cstdint>
 
@@ -39,15 +37,12 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::ThrCopy thr_copy_a = copy_a.get_slice(threadIdx.x);
   cute::Tensor A_block_copy = thr_copy_a.partition_S(A_block);
 
-  /*
-cute::Tensor A_block_copy = cute::local_partition(
-    A_block, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
-    threadIdx.x);
-  */
-
-  cute::Tensor B_block_copy = cute::local_partition(
-      B_block, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
-      threadIdx.x);
+  cute::TiledCopy copy_b = cute::make_tiled_copy(
+      cute::Copy_Atom<cute::UniversalCopy<cute::uint128_t>, float>{},
+      cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
+      cute::make_layout(cute::make_shape(cute::_4{}, cute::_1{})));
+  cute::ThrCopy thr_copy_b = copy_b.get_slice(threadIdx.x);
+  cute::Tensor B_block_copy = thr_copy_b.partition_S(B_block);
 
   cute::Tensor C_thread =
       cute::local_partition(C_block, thread_layout, threadIdx.x);
@@ -63,14 +58,7 @@ cute::Tensor A_block_copy = cute::local_partition(
                         cute::make_shape(cute::_128{}, cute::_8{}));
 
   cute::Tensor A_shared_copy = thr_copy_a.partition_D(A_shared);
-  /*
-  cute::Tensor A_shared_copy = cute::local_partition(
-      A_shared, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
-      threadIdx.x);
-*/
-  cute::Tensor B_shared_copy = cute::local_partition(
-      B_shared, cute::make_layout(cute::make_shape(cute::_32{}, cute::_8{})),
-      threadIdx.x);
+  cute::Tensor B_shared_copy = thr_copy_b.partition_D(B_shared);
 
   cute::Tensor A_shared_local =
       cute::local_partition(A_shared, thread_layout, threadIdx.x,
@@ -87,7 +75,8 @@ cute::Tensor A_block_copy = cute::local_partition(
   for (int i = 0; i < k / 8; ++i) {
     cute::copy(copy_a, A_block_copy(cute::_, cute::_, cute::_, i),
                A_shared_copy);
-    cute::copy(B_block_copy(cute::_, cute::_, i), B_shared_copy);
+    cute::copy(copy_b, B_block_copy(cute::_, cute::_, cute::_, i),
+               B_shared_copy);
 
     cute::cp_async_fence();
     cute::cp_async_wait<0>();

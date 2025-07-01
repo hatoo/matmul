@@ -225,7 +225,7 @@ class Cute02Kernel(KernelBase):
         cutlass_path = os.environ["CUTLASS_PATH"]
 
         return load_inline(
-            name="cute01",
+            name="cute02",
             cpp_sources="void cute02(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
             cuda_sources=self.cuda_source,
             functions="cute02",
@@ -415,7 +415,13 @@ def main():
     subparsers.add_parser("benchmark", help="Benchmark all kernels.")
 
     # Verify mode
-    subparsers.add_parser("verify", help="Verify all kernels.")
+    verify_parser = subparsers.add_parser("verify", help="Verify kernels.")
+    verify_parser.add_argument(
+        "kernel",
+        nargs="?",
+        choices=all_kernel_choices,
+        help="Kernel to verify (optional, verifies all if not specified).",
+    )
 
     # Profile mode
     profile_parser = subparsers.add_parser(
@@ -467,9 +473,13 @@ def main():
             output_file = args.output if args.output else f"{args.kernel}.sass"
             kernel.dump_sass(output_file, args.debug)
     elif args.mode == "verify":
-        # Verify all kernels
-        for name, kernel in kernels.items():
+        # Verify specified kernel or all kernels
+        if args.kernel:
+            kernel = kernels[args.kernel]
             kernel.verify(m, n, k)
+        else:
+            for name, kernel in kernels.items():
+                kernel.verify(m, n, k)
     elif args.mode == "benchmark":
         # Benchmark all kernels
         for name, kernel in kernels.items():
