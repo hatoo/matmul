@@ -269,6 +269,7 @@ def dump_ptx(
             "--ptx",
             "-O3" if not debug else "-O0",
             "-arch=sm_120",  # adjust based on your GPU architecture
+            "--use_fast_math",
             "-o",
             output_file,
             f"-I{cutlass_path}/include",

@@ -44,9 +44,6 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::ThrCopy thr_copy_b = copy_b.get_slice(threadIdx.x);
   cute::Tensor B_block_copy = thr_copy_b.partition_S(B_block);
 
-  cute::Tensor C_thread =
-      cute::local_partition(C_block, thread_layout, threadIdx.x);
-
   __shared__ float a_shared[128 * 8];
   __shared__ float b_shared[128 * 8];
 
@@ -60,16 +57,16 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::Tensor A_shared_copy = thr_copy_a.partition_D(A_shared);
   cute::Tensor B_shared_copy = thr_copy_b.partition_D(B_shared);
 
-  cute::Tensor A_shared_local =
-      cute::local_partition(A_shared, thread_layout, threadIdx.x,
-                            cute::make_step(cute::_1{}, cute::X{}));
-  cute::Tensor B_shared_local =
-      cute::local_partition(B_shared, thread_layout, threadIdx.x,
-                            cute::make_step(cute::X{}, cute::_1{}));
+  cute::TiledMMA mma = cute::make_tiled_mma(
+      cute::UniversalFMA<float>{}, cute::make_layout(cute::make_shape(
+                                       cute::_16{}, cute::_16{}, cute::_1{})));
 
-  cute::Tensor C_reg =
-      cute::make_tensor<float>(cute::make_shape(cute::_8{}, cute::_8{}));
+  cute::ThrMMA thr_mma = mma.get_slice(threadIdx.x);
+  cute::Tensor A_shared_local = thr_mma.partition_A(A_shared);
+  cute::Tensor B_shared_local = thr_mma.partition_B(B_shared);
+  cute::Tensor C_thread_local = thr_mma.partition_C(C_block);
 
+  cute::Tensor C_reg = cute::make_fragment_like(C_thread_local);
   cute::clear(C_reg);
 
   for (int i = 0; i < k / 8; ++i) {
@@ -82,11 +79,11 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
     cute::cp_async_wait<0>();
     __syncthreads();
 
-    cute::gemm(A_shared_local, B_shared_local, C_reg);
+    cute::gemm(mma, A_shared_local, B_shared_local, C_reg);
     __syncthreads();
   }
 
-  cute::copy(C_reg, C_thread);
+  cute::copy(C_reg, C_thread_local);
 }
 
 void cute02(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k) {
