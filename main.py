@@ -213,6 +213,33 @@ class Cute01Kernel(KernelBase):
         self.kernel_module.cute01(a.data_ptr(), b.data_ptr(), c.data_ptr(), m, n, k)
 
 
+class Cute02Kernel(KernelBase):
+    """Cute 02 CUDA kernel implementation."""
+
+    def __init__(self):
+        super().__init__("cute02")
+        with open("kernels/cute02.cu", "r") as f:
+            self.cuda_source = f.read()
+
+    def _load_kernel(self) -> Any:
+        cutlass_path = os.environ["CUTLASS_PATH"]
+
+        return load_inline(
+            name="cute01",
+            cpp_sources="void cute02(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+            cuda_sources=self.cuda_source,
+            functions="cute02",
+            with_cuda=True,
+            extra_cuda_cflags=["-O3"],
+            extra_include_paths=[cutlass_path + "/include"],
+        )
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        m, k = a.shape
+        _k, n = b.shape
+        self.kernel_module.cute02(a.data_ptr(), b.data_ptr(), c.data_ptr(), m, n, k)
+
+
 def dump_ptx(
     name: str, cuda_source: str, output_file: str | None = None, debug: bool = False
 ):
@@ -361,6 +388,7 @@ def get_available_kernels():
         "simple": SimpleKernel(),
         "tile": TileKernel(),
         "cute01": Cute01Kernel(),
+        "cute02": Cute02Kernel(),
     }
 
 
