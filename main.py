@@ -420,7 +420,13 @@ def main():
     all_kernel_choices, dumpable_kernel_choices = get_kernel_choices()
 
     # Benchmark mode
-    subparsers.add_parser("benchmark", help="Benchmark all kernels.")
+    benchmark_parser = subparsers.add_parser("benchmark", help="Benchmark kernels.")
+    benchmark_parser.add_argument(
+        "kernel",
+        nargs="?",
+        choices=all_kernel_choices,
+        help="Kernel to benchmark (optional, benchmarks all if not specified).",
+    )
 
     # Verify mode
     verify_parser = subparsers.add_parser("verify", help="Verify kernels.")
@@ -489,9 +495,13 @@ def main():
             for name, kernel in kernels.items():
                 kernel.verify(m, n, k)
     elif args.mode == "benchmark":
-        # Benchmark all kernels
-        for name, kernel in kernels.items():
+        # Benchmark specified kernel or all kernels
+        if args.kernel:
+            kernel = kernels[args.kernel]
             kernel.benchmark(n, m, k)
+        else:
+            for name, kernel in kernels.items():
+                kernel.benchmark(n, m, k)
 
 
 if __name__ == "__main__":
