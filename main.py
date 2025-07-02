@@ -6,6 +6,7 @@ import os
 import subprocess
 from typing import Any
 from abc import ABC, abstractmethod
+from utils import verbose_allclose
 
 from collections.abc import Callable
 
@@ -44,11 +45,17 @@ class KernelBase(ABC):
         self.launch(a, b, c)
         torch.cuda.synchronize()
 
-        if torch.allclose(c, c_ref, rtol=1e-02, atol=1e-03):
+        reasons = verbose_allclose(c, c_ref, rtol=1e-02, atol=1e-03, max_print=10)
+        if len(reasons) == 0:
             print(f"{self.name} kernel verification passed.")
             return True
         else:
+            msg = (
+                "mismatch found! custom implementation doesn't match reference: "
+                + " ".join(reasons)
+            )
             print(f"{self.name} kernel verification failed.")
+            print(msg)
             return False
 
     def benchmark(self, n: int, m: int, k: int, warmup_times: int = 4, times: int = 8):
@@ -213,6 +220,33 @@ class Cute01Kernel(KernelBase):
         self.kernel_module.cute01(a.data_ptr(), b.data_ptr(), c.data_ptr(), m, n, k)
 
 
+class Cute02Kernel(KernelBase):
+    """Cute 02 CUDA kernel implementation."""
+
+    def __init__(self):
+        super().__init__("cute02")
+        with open("kernels/cute02.cu", "r") as f:
+            self.cuda_source = f.read()
+
+    def _load_kernel(self) -> Any:
+        cutlass_path = os.environ["CUTLASS_PATH"]
+
+        return load_inline(
+            name="cute02",
+            cpp_sources="void cute02(uintptr_t a, uintptr_t b, uintptr_t c, int m, int n, int k);",
+            cuda_sources=self.cuda_source,
+            functions="cute02",
+            with_cuda=True,
+            extra_cuda_cflags=["-O3"],
+            extra_include_paths=[cutlass_path + "/include"],
+        )
+
+    def launch(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor):
+        m, k = a.shape
+        _k, n = b.shape
+        self.kernel_module.cute02(a.data_ptr(), b.data_ptr(), c.data_ptr(), m, n, k)
+
+
 def dump_ptx(
     name: str, cuda_source: str, output_file: str | None = None, debug: bool = False
 ):
@@ -235,14 +269,17 @@ def dump_ptx(
         f.write(cuda_source)
 
     try:
+        cutlass_path = os.environ["CUTLASS_PATH"]
         # Use nvcc to compile to PTX
         cmd = [
             "nvcc",
             "--ptx",
             "-O3" if not debug else "-O0",
             "-arch=sm_120",  # adjust based on your GPU architecture
+            "--use_fast_math",
             "-o",
             output_file,
+            f"-I{cutlass_path}/include",
             temp_cu_file,
         ]
 
@@ -361,6 +398,7 @@ def get_available_kernels():
         "simple": SimpleKernel(),
         "tile": TileKernel(),
         "cute01": Cute01Kernel(),
+        "cute02": Cute02Kernel(),
     }
 
 
@@ -382,10 +420,22 @@ def main():
     all_kernel_choices, dumpable_kernel_choices = get_kernel_choices()
 
     # Benchmark mode
-    subparsers.add_parser("benchmark", help="Benchmark all kernels.")
+    benchmark_parser = subparsers.add_parser("benchmark", help="Benchmark kernels.")
+    benchmark_parser.add_argument(
+        "kernel",
+        nargs="?",
+        choices=all_kernel_choices,
+        help="Kernel to benchmark (optional, benchmarks all if not specified).",
+    )
 
     # Verify mode
-    subparsers.add_parser("verify", help="Verify all kernels.")
+    verify_parser = subparsers.add_parser("verify", help="Verify kernels.")
+    verify_parser.add_argument(
+        "kernel",
+        nargs="?",
+        choices=all_kernel_choices,
+        help="Kernel to verify (optional, verifies all if not specified).",
+    )
 
     # Profile mode
     profile_parser = subparsers.add_parser(
@@ -437,13 +487,21 @@ def main():
             output_file = args.output if args.output else f"{args.kernel}.sass"
             kernel.dump_sass(output_file, args.debug)
     elif args.mode == "verify":
-        # Verify all kernels
-        for name, kernel in kernels.items():
+        # Verify specified kernel or all kernels
+        if args.kernel:
+            kernel = kernels[args.kernel]
             kernel.verify(m, n, k)
+        else:
+            for name, kernel in kernels.items():
+                kernel.verify(m, n, k)
     elif args.mode == "benchmark":
-        # Benchmark all kernels
-        for name, kernel in kernels.items():
+        # Benchmark specified kernel or all kernels
+        if args.kernel:
+            kernel = kernels[args.kernel]
             kernel.benchmark(n, m, k)
+        else:
+            for name, kernel in kernels.items():
+                kernel.benchmark(n, m, k)
 
 
 if __name__ == "__main__":
