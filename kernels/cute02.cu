@@ -79,8 +79,8 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
 
   for (int i = 0; i < k / 8; ++i) {
     __syncthreads();
-    cute::copy(A_reg_copy, A_shared_copy);
-    cute::copy(B_reg_copy, B_shared_copy);
+    cute::copy(copy_a, A_reg_copy, A_shared_copy);
+    cute::copy(copy_b, B_reg_copy, B_shared_copy);
 
     __syncthreads();
 
