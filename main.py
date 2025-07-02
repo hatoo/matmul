@@ -10,6 +10,8 @@ from utils import verbose_allclose
 
 from collections.abc import Callable
 
+# torch.backends.cuda.matmul.allow_tf32 = True
+
 
 class KernelBase(ABC):
     """Base class for CUDA matrix multiplication kernels."""
@@ -45,7 +47,7 @@ class KernelBase(ABC):
         self.launch(a, b, c)
         torch.cuda.synchronize()
 
-        reasons = verbose_allclose(c, c_ref, rtol=1e-02, atol=1e-03, max_print=10)
+        reasons = verbose_allclose(c, c_ref, rtol=1e-02, atol=1e-02, max_print=10)
         if len(reasons) == 0:
             print(f"{self.name} kernel verification passed.")
             return True

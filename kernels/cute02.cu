@@ -60,6 +60,12 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::TiledMMA mma = cute::make_tiled_mma(
       cute::UniversalFMA<float>{}, cute::make_layout(cute::make_shape(
                                        cute::_16{}, cute::_16{}, cute::_1{})));
+  /*
+  cute::TiledMMA mma = cute::make_tiled_mma(
+      cute::SM80_16x8x8_F32TF32TF32F32_TN{},
+      cute::make_layout(cute::make_shape(cute::_32{}, cute::_1{}, cute::_1{})),
+      cute::make_tile(cute::_128{}, cute::_128{}, cute::_8{}));
+  */
 
   cute::ThrMMA thr_mma = mma.get_slice(threadIdx.x);
   cute::Tensor A_shared_local = thr_mma.partition_A(A_shared);
