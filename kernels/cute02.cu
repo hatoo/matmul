@@ -66,21 +66,32 @@ __global__ void cute_matmul_kernel02(float *a, float *b, float *c, M m, N n,
   cute::Tensor B_shared_local = thr_mma.partition_B(B_shared);
   cute::Tensor C_thread_local = thr_mma.partition_C(C_block);
 
+  cute::Tensor A_reg_copy = cute::make_fragment_like(A_shared_copy);
+  cute::Tensor B_reg_copy = cute::make_fragment_like(B_shared_copy);
+
   cute::Tensor C_reg = cute::make_fragment_like(C_thread_local);
   cute::clear(C_reg);
 
-  for (int i = 0; i < k / 8; ++i) {
-    cute::copy(copy_a, A_block_copy(cute::_, cute::_, cute::_, i),
-               A_shared_copy);
-    cute::copy(copy_b, B_block_copy(cute::_, cute::_, cute::_, i),
-               B_shared_copy);
+  cute::copy(copy_a, A_block_copy(cute::_, cute::_, cute::_, cute::_0{}),
+             A_reg_copy);
+  cute::copy(copy_b, B_block_copy(cute::_, cute::_, cute::_, cute::_0{}),
+             B_reg_copy);
 
-    cute::cp_async_fence();
-    cute::cp_async_wait<0>();
+  for (int i = 0; i < k / 8; ++i) {
     __syncthreads();
+    cute::copy(A_reg_copy, A_shared_copy);
+    cute::copy(B_reg_copy, B_shared_copy);
+
+    __syncthreads();
+
+    if (i + 1 < k / 8) {
+      cute::copy(copy_a, A_block_copy(cute::_, cute::_, cute::_, i + 1),
+                 A_reg_copy);
+      cute::copy(copy_b, B_block_copy(cute::_, cute::_, cute::_, i + 1),
+                 B_reg_copy);
+    }
 
     cute::gemm(mma, A_shared_local, B_shared_local, C_reg);
-    __syncthreads();
   }
 
   cute::copy(C_reg, C_thread_local);
