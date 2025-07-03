@@ -13,3 +13,5 @@ wheels/
 *.sass
 
 compile_flags.txt
+
+sandbox.*
