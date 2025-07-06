@@ -15,3 +15,4 @@ wheels/
 compile_flags.txt
 
 sandbox.*
+*.mlir
